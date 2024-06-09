@@ -1,0 +1,19 @@
+*.pyc
+
+# Packages
+/dist/*
+
+# Unit test / coverage reports
+.coverage
+.pytest_cache
+
+.DS_Store
+.idea/*
+.python-version
+.vscode/*
+
+.venv
+/poetry.toml
+
+# Local env files
+.env*.local
