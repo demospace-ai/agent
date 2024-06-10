@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from typing import Literal, MutableSet
+from typing import Literal, MutableSet, Optional
 
 import openai
 from attrs import define
 from livekit.agents import llm
-from openai import AssistantEventHandler, AsyncAssistantEventHandler
-
-logger = logging.getLogger("livekit.plugins.openai")
 
 ChatModels = Literal[
   "gpt-4o",
@@ -54,11 +50,13 @@ class LLM(llm.LLM):
     self._running_fncs: MutableSet[asyncio.Task] = set()
     self.thread = None
 
-  async def get_thread(self):
+  async def get_thread(self, history: llm.ChatContext):
     if self.thread is not None:
       return self.thread
     else:
-      self.thread = await self._client.beta.threads.create()
+      self.thread = await self._client.beta.threads.create(
+        messages=to_openai_ctx(history),
+      )
       return self.thread
 
   async def chat(
@@ -70,50 +68,82 @@ class LLM(llm.LLM):
   ) -> "LLMStream":
     opts = dict()
 
-    thread = await self.get_thread()
-    cmp = await self._client.beta.threads.runs.stream(
+    thread = await self.get_thread(history)
+    llm_stream = LLMStream()
+    stream: openai.AsyncAssistantEventHandler
+    async with self._client.beta.threads.runs.stream(
       thread_id=thread.id,
       assistant_id=self.assistant_id,
-      event_handler=AssistantEventHandler(),
       model=self._opts.model,
-      n=n,
       temperature=temperature,
       **opts,
-    )
+    ) as stream:
+      async for chunk in stream:
+        if chunk.event == "thread.message.delta":
+          choice = chunk.data.delta.content[0]
+          llm_stream.push_text(
+            llm.ChatChunk(
+              choices=[
+                llm.Choice(
+                  delta=llm.ChoiceDelta(
+                    content=choice.text.value,
+                    role=chunk.data.delta.role,
+                  ),
+                  index=0,
+                )
+              ]
+            )
+          )
+        elif chunk.event == "thread.message.completed":
+          print(chunk.data.content[0].text.value)
+        elif chunk.event == "thread.run.completed":
+          print("complete")
+          llm_stream.push_text(None)
+        else:
+          print(chunk.event)
 
-    return LLMStream(cmp)
+    return llm_stream
 
 
 class LLMStream(llm.LLMStream):
-  def __init__(self, oai_stream: AsyncAssistantEventHandler) -> None:
+  def __init__(self) -> None:
     super().__init__()
-    self._oai_stream = oai_stream
+    self._event_queue = asyncio.Queue[Optional[str]]()
+    self._closed = False
     self._running_fncs: MutableSet[asyncio.Task] = set()
+
+  def push_text(self, text: llm.ChatChunk) -> None:
+    if self._closed:
+      raise ValueError("cannot push text to a closed stream")
+
+    self._event_queue.put_nowait(text)
 
   def __aiter__(self) -> "LLMStream":
     return self
 
   async def __anext__(self) -> llm.ChatChunk:
-    async for chunk in self._oai_stream:
-      if chunk.event == "thread.message.delta":
-        choice = chunk.data.delta.content[0]
-        return llm.ChatChunk(
-          choices=[
-            llm.Choice(
-              delta=llm.ChoiceDelta(
-                content=choice.text,
-                role=chunk.data.role,
-              ),
-              index=0,
-            )
-          ]
-        )
+    event = await self._event_queue.get()
+    if event is None:
+      raise StopAsyncIteration
+
+    return event
 
   async def aclose(self, wait: bool = True) -> None:
-    await self._oai_stream.close()
+    print("closing")
+    self._closed = True
 
     if not wait:
       for task in self._running_fncs:
         task.cancel()
 
     await asyncio.gather(*self._running_fncs, return_exceptions=True)
+
+
+def to_openai_ctx(chat_ctx: llm.ChatContext) -> list:
+  return [
+    {
+      "role": msg.role.value,
+      "content": msg.text,
+    }
+    for msg in chat_ctx.messages
+  ]

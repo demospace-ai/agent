@@ -4,15 +4,10 @@ import os
 
 from dotenv import load_dotenv
 from livekit.agents import JobContext, JobRequest, WorkerOptions, cli
-from livekit.agents.llm import (
-  ChatContext,
-  ChatMessage,
-  ChatRole,
-)
 from livekit.agents.voice_assistant import VoiceAssistant
-from livekit.plugins import deepgram, elevenlabs, silero
+from livekit.plugins import deepgram, elevenlabs
 
-from demospace.livekit import openai_assistant
+from demospace.livekit import openai_assistant, silero
 
 if os.environ.get("ENVIRONMENT") != "production":
   load_dotenv(".env.local")
@@ -20,36 +15,30 @@ if os.environ.get("ENVIRONMENT") != "production":
 
 # This function is the entrypoint for the agent.
 async def entrypoint(ctx: JobContext):
-  # Create an initial chat context with a system prompt
-  initial_ctx = ChatContext(
-    messages=[
-      ChatMessage(
-        role=ChatRole.SYSTEM,
-        text="You are a voice assistant created by LiveKit. Your interface with users will be voice. Pretend we're having a conversation, no special formatting or headings, just natural speech.",
-      )
-    ]
-  )
-
   # VoiceAssistant is a class that creates a full conversational AI agent.
   # See https://github.com/livekit/agents/blob/main/livekit-agents/livekit/agents/voice_assistant/assistant.py
   # for details on how it works.
   assistant = VoiceAssistant(
-    vad=silero.VAD(),  # Voice Activity Detection
+    vad=silero.VAD(
+      min_silence_duration=1.3,
+    ),  # Voice Activity Detection
     stt=deepgram.STT(),  # Speech-to-Text
     llm=openai_assistant.LLM(
       assistant_id="asst_bbUcOJFDfFWKYthUgNeHNSIp"
     ),  # Language Model
     tts=elevenlabs.TTS(),  # Text-to-Speech
-    chat_ctx=initial_ctx,  # Chat history context
   )
 
   # Start the voice assistant with the LiveKit room
   assistant.start(ctx.room)
 
-  await asyncio.sleep(3)
+  await asyncio.sleep(1)
 
   # Greets the user with an initial message
-  await assistant.say("Hey, how can I help you today?", allow_interruptions=True)
+  await assistant.say(
+    "Hi there! I'm Demi, here to share more about Otter AI and answer any questions. First of all, I'd love to learn a bit more about your use case. Could you share what you're hoping to accomplish with Otter AI?",
+    allow_interruptions=True,
+  )
 
 
 # This function is called when the worker receives a job request
