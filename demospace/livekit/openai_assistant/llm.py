@@ -48,16 +48,29 @@ class LLM(llm.LLM):
     self._opts = LLMOptions(model=model)
     self._client = client or openai.AsyncClient()
     self._running_fncs: MutableSet[asyncio.Task] = set()
-    self.thread = None
+    self._thread: openai.Thread = None
+    self._active_run: openai.Run = None
 
-  async def get_thread(self, history: llm.ChatContext):
-    if self.thread is not None:
-      return self.thread
+  async def _add_messages_and_get_thread(
+    self, history: llm.ChatContext
+  ) -> openai.Thread:
+    if self._thread is not None:
+      if self._active_run is not None:
+        await self._client.beta.threads.runs.cancel(
+          thread_id=self._thread.id, run_id=self._active_run.id
+        )
+
+      # Add the latest message to the thread and return it
+      latest_msg = history.messages[-1]
+      await self._client.beta.threads.messages.create(
+        thread_id=self._thread.id, content=latest_msg.text, role=latest_msg.role.value
+      )
+      return self._thread
     else:
-      self.thread = await self._client.beta.threads.create(
+      self._thread = await self._client.beta.threads.create(
         messages=to_openai_ctx(history),
       )
-      return self.thread
+      return self._thread
 
   async def chat(
     self,
@@ -66,9 +79,7 @@ class LLM(llm.LLM):
     temperature: float | None = None,
     n: int | None = None,
   ) -> "LLMStream":
-    opts = dict()
-
-    thread = await self.get_thread(history)
+    thread = await self._add_messages_and_get_thread(history)
     llm_stream = LLMStream()
     stream: openai.AsyncAssistantEventHandler
     async with self._client.beta.threads.runs.stream(
@@ -76,7 +87,6 @@ class LLM(llm.LLM):
       assistant_id=self.assistant_id,
       model=self._opts.model,
       temperature=temperature,
-      **opts,
     ) as stream:
       async for chunk in stream:
         if chunk.event == "thread.message.delta":
@@ -94,13 +104,11 @@ class LLM(llm.LLM):
               ]
             )
           )
-        elif chunk.event == "thread.message.completed":
-          print(chunk.data.content[0].text.value)
+        elif chunk.event == "thread.run.created":
+          self._active_run = stream.current_run
         elif chunk.event == "thread.run.completed":
-          print("complete")
+          self._active_run = None
           llm_stream.push_text(None)
-        else:
-          print(chunk.event)
 
     return llm_stream
 
@@ -129,7 +137,6 @@ class LLMStream(llm.LLMStream):
     return event
 
   async def aclose(self, wait: bool = True) -> None:
-    print("closing")
     self._closed = True
 
     if not wait:
