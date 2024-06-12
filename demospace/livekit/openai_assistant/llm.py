@@ -37,7 +37,7 @@ ChatModels = Literal[
 
 @define
 class LLMOptions:
-  model: str | ChatModels
+  model: ChatModels
 
 
 class LLM(llm.LLM):
@@ -45,17 +45,17 @@ class LLM(llm.LLM):
     self,
     *,
     assistant_id: str,
-    model: str | ChatModels = "gpt-4o",
-    client: openai.AsyncClient | None = None,
     room: rtc.Room,
+    model: ChatModels = "gpt-4o",
+    client: openai.AsyncClient | None = None,
   ) -> None:
-    self.assistant_id = assistant_id
-    self._opts = LLMOptions(model=model)
-    self._client = client or openai.AsyncClient()
+    self.assistant_id: str = assistant_id
+    self._room: rtc.Room = room
+    self._opts: LLMOptions = LLMOptions(model=model)
+    self._client: openai.AsyncClient = client or openai.AsyncClient()
     self._running_fncs: MutableSet[asyncio.Task] = set()
     self._thread: openai.Thread = None
     self._active_run: openai.Run = None
-    self._room: rtc.Room = room
 
   async def _cancel_active_runs(self) -> None:
     try:
