@@ -125,10 +125,22 @@ class LLM(llm.LLM):
   async def _handle_response_stream(
     self, stream: openai.AsyncAssistantEventHandler, llm_stream: LLMStream
   ) -> None:
+    gathering_function_call = False
+    function_call = ""
     async for chunk in stream:
       self._active_run = stream.current_run
       if chunk.event == "thread.message.delta":
-        self._add_chunk_to_stream(llm_stream, chunk)
+        if "\n\n" in chunk.data.delta.content[0].text.value:
+          if gathering_function_call:
+            gathering_function_call = False
+            logging.info(f"Function call: {function_call}")
+            # await send_asset(function_call, self._room)
+          else:
+            gathering_function_call = True
+        elif gathering_function_call:
+          function_call += chunk.data.delta.content[0].text.value
+        else:
+          self._add_chunk_to_stream(llm_stream, chunk)
       elif chunk.event == "thread.run.completed":
         self._active_run = None
         llm_stream.push_text(None)
