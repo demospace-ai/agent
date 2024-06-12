@@ -70,33 +70,43 @@ class LLM(llm.LLM):
         self._active_run = None
       logging.info(f"Error cancelling run: {e}")
 
+  async def _add_messages(self, history: llm.ChatContext) -> openai.Thread:
+    try:
+      await self._cancel_active_runs()
+
+      # Add the latest message to the thread and return it
+      latest_msg = history.messages[-1]
+      await self._client.beta.threads.messages.create(
+        thread_id=self._thread.id,
+        content=latest_msg.text,
+        role=latest_msg.role.value,
+      )
+      return True
+
+    except openai.APIError as e:
+      logging.info(f"Failed adding message: {e}, retrying...")
+      if "is active" in e.message:
+        try:
+          run_id = e.message.split(" ")[14]
+          await self._client.beta.threads.runs.cancel(
+            thread_id=self._thread.id, run_id=run_id
+          )
+        except openai.APIError as e2:
+          logging.info(f"Failed cancelling run: {e2}")
+
+    return False
+
   async def _add_messages_and_get_thread(
     self, history: llm.ChatContext
   ) -> openai.Thread:
     if self._thread is not None:
+      retry_delay = 1
       message_added = False
       while not message_added:
-        try:
-          await self._cancel_active_runs()
-
-          # Add the latest message to the thread and return it
-          latest_msg = history.messages[-1]
-          await self._client.beta.threads.messages.create(
-            thread_id=self._thread.id,
-            content=latest_msg.text,
-            role=latest_msg.role.value,
-          )
-          message_added = True
-        except openai.APIError as e:
-          logging.info(f"Failed adding message: {e}, retrying...")
-          if "is active" in e.message:
-            try:
-              run_id = e.message.split(" ")[14]
-              await self._client.beta.threads.runs.cancel(
-                thread_id=self._thread.id, run_id=run_id
-              )
-            except openai.APIError as e2:
-              logging.info(f"Failed cancelling run: {e2}")
+        message_added = await self._add_messages(history)
+        if not message_added:
+          await asyncio.sleep(retry_delay)
+          retry_delay *= 2
       return self._thread
     else:
       self._thread = await self._client.beta.threads.create(
