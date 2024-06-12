@@ -88,15 +88,15 @@ class LLM(llm.LLM):
           )
           message_added = True
         except openai.APIError as e:
+          logging.info(f"Failed adding message: {e}, retrying...")
           if "is active" in e.message:
             try:
               run_id = e.message.split(" ")[14]
               await self._client.beta.threads.runs.cancel(
                 thread_id=self._thread.id, run_id=run_id
               )
-            except openai.APIError as e:
-              logging.info(f"Failed cancelling run: {e}")
-          logging.info(f"Failed adding message: {e}, retrying...")
+            except openai.APIError as e2:
+              logging.info(f"Failed cancelling run: {e2}")
       return self._thread
     else:
       self._thread = await self._client.beta.threads.create(
