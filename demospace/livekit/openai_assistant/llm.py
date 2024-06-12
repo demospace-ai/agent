@@ -152,14 +152,28 @@ class LLM(llm.LLM):
   ) -> None:
     gathering_function_call = False
     function_args = ""
+    prev_word = ""
     async for chunk in stream:
       self._active_run = stream.current_run
       if chunk.event == "thread.message.delta":
-        if "({\n" in chunk.data.delta.content[0].text.value:
+        if "functions" in chunk.data.delta.content[0].text.value:
+          prev_word = "functions"
+        elif prev_word != "":
+          if prev_word == "functions":
+            if ".send" in chunk.data.delta.content[0].text.value:
+              prev_word = ".send"
+            else:
+              # False alarm, the word "functions" was just said as a regular word
+              self._add_text_to_stream(llm_stream, "functions", "assistant")
+              self._add_chunk_to_stream(llm_stream, chunk)
+              prev_word = ""
+          elif prev_word == ".send":
+            prev_word = ""
+        elif "({" in chunk.data.delta.content[0].text.value:
           self._add_text_to_stream(llm_stream, "\n", "assistant")
           function_args += "{"
           gathering_function_call = True
-        elif "\n})" in chunk.data.delta.content[0].text.value:
+        elif "})" in chunk.data.delta.content[0].text.value:
           function_args += "}"
           logging.info(f"Manually sending asset: {function_args}")
           await send_asset(function_args, self._room)
