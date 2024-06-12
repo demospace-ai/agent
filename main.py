@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 
 from dotenv import load_dotenv
 from livekit.agents import JobContext, JobRequest, WorkerOptions, cli
@@ -8,8 +7,9 @@ from livekit.agents.voice_assistant import VoiceAssistant
 from livekit.plugins import deepgram, elevenlabs
 
 from demospace.livekit import openai_assistant, silero
+from demospace.utils.env import is_prod
 
-if os.environ.get("ENVIRONMENT") != "production":
+if is_prod():
   load_dotenv(".env.local")
 
 
@@ -20,11 +20,12 @@ async def entrypoint(ctx: JobContext):
   # for details on how it works.
   assistant = VoiceAssistant(
     vad=silero.VAD(
-      min_silence_duration=1.3,
+      min_silence_duration=2.0,
     ),  # Voice Activity Detection
     stt=deepgram.STT(),  # Speech-to-Text
     llm=openai_assistant.LLM(
-      assistant_id="asst_bbUcOJFDfFWKYthUgNeHNSIp"
+      assistant_id="asst_bbUcOJFDfFWKYthUgNeHNSIp",
+      room=ctx.room,
     ),  # Language Model
     tts=elevenlabs.TTS(),  # Text-to-Speech
   )

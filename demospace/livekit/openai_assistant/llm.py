@@ -5,7 +5,10 @@ from typing import Literal, MutableSet, Optional
 
 import openai
 from attrs import define
+from livekit import rtc
 from livekit.agents import llm
+
+from demospace.openai.functions import send_asset
 
 ChatModels = Literal[
   "gpt-4o",
@@ -43,6 +46,7 @@ class LLM(llm.LLM):
     assistant_id: str,
     model: str | ChatModels = "gpt-4o",
     client: openai.AsyncClient | None = None,
+    room: rtc.Room,
   ) -> None:
     self.assistant_id = assistant_id
     self._opts = LLMOptions(model=model)
@@ -50,27 +54,102 @@ class LLM(llm.LLM):
     self._running_fncs: MutableSet[asyncio.Task] = set()
     self._thread: openai.Thread = None
     self._active_run: openai.Run = None
+    self._room: rtc.Room = room
+
+  async def _cancel_active_runs(self) -> None:
+    try:
+      if self._active_run is not None:
+        await self._client.beta.threads.runs.cancel(
+          thread_id=self._thread.id, run_id=self._active_run.id
+        )
+        self._active_run = None
+
+    except openai.APIError as e:
+      if e.message == "Cannot cancel run with status 'cancelling'.":
+        self._active_run = None
+      print(f"Error cancelling run: {e}")
 
   async def _add_messages_and_get_thread(
     self, history: llm.ChatContext
   ) -> openai.Thread:
     if self._thread is not None:
-      if self._active_run is not None:
-        await self._client.beta.threads.runs.cancel(
-          thread_id=self._thread.id, run_id=self._active_run.id
-        )
+      message_added = False
+      while not message_added:
+        try:
+          await self._cancel_active_runs()
 
-      # Add the latest message to the thread and return it
-      latest_msg = history.messages[-1]
-      await self._client.beta.threads.messages.create(
-        thread_id=self._thread.id, content=latest_msg.text, role=latest_msg.role.value
-      )
+          # Add the latest message to the thread and return it
+          latest_msg = history.messages[-1]
+          await self._client.beta.threads.messages.create(
+            thread_id=self._thread.id,
+            content=latest_msg.text,
+            role=latest_msg.role.value,
+          )
+          message_added = True
+        except openai.APIError as e:
+          if "is active" in e.message:
+            try:
+              run_id = e.message.split(" ")[14]
+              await self._client.beta.threads.runs.cancel(
+                thread_id=self._thread.id, run_id=run_id
+              )
+            except openai.APIError as e:
+              print(f"Failed cancelling run: {e}")
+          print(f"Failed adding message: {e}, retrying...")
       return self._thread
     else:
       self._thread = await self._client.beta.threads.create(
         messages=to_openai_ctx(history),
       )
       return self._thread
+
+  def _add_chunk_to_stream(
+    self, llm_stream: LLMStream, chunk: openai.ThreadMessageDelta
+  ) -> None:
+    choice = chunk.data.delta.content[0]
+    llm_stream.push_text(
+      llm.ChatChunk(
+        choices=[
+          llm.Choice(
+            delta=llm.ChoiceDelta(
+              content=choice.text.value,
+              role=chunk.data.delta.role,
+            ),
+            index=0,
+          )
+        ]
+      )
+    )
+
+  async def _handle_response_stream(
+    self, stream: openai.AsyncAssistantEventHandler, llm_stream: LLMStream
+  ) -> None:
+    async for chunk in stream:
+      self._active_run = stream.current_run
+      if chunk.event == "thread.message.delta":
+        self._add_chunk_to_stream(llm_stream, chunk)
+      elif chunk.event == "thread.run.completed":
+        self._active_run = None
+        llm_stream.push_text(None)
+      elif chunk.event == "thread.run.requires_action":
+        tool_calls = chunk.data.required_action.submit_tool_outputs.tool_calls
+        outputs = []
+        for tool_call in tool_calls:
+          match tool_call.function.name:
+            case "send_asset":
+              print(f"Sending asset: {tool_call.function.arguments}")
+              await send_asset(tool_call.function.arguments, self._room)
+              outputs.append({"tool_call_id": tool_call.id, "output": "OK"})
+            case _:
+              print(f"Unrecognized function name: {tool_call.function.name}")
+              continue
+        async with self._client.beta.threads.runs.submit_tool_outputs_stream(
+          thread_id=self._thread.id,
+          run_id=self._active_run.id,
+          tool_outputs=outputs,
+        ) as new_stream:
+          print("Submitted tool outputs")
+          await self._handle_response_stream(new_stream, llm_stream)
 
   async def chat(
     self,
@@ -88,27 +167,7 @@ class LLM(llm.LLM):
       model=self._opts.model,
       temperature=temperature,
     ) as stream:
-      async for chunk in stream:
-        if chunk.event == "thread.message.delta":
-          choice = chunk.data.delta.content[0]
-          llm_stream.push_text(
-            llm.ChatChunk(
-              choices=[
-                llm.Choice(
-                  delta=llm.ChoiceDelta(
-                    content=choice.text.value,
-                    role=chunk.data.delta.role,
-                  ),
-                  index=0,
-                )
-              ]
-            )
-          )
-        elif chunk.event == "thread.run.created":
-          self._active_run = stream.current_run
-        elif chunk.event == "thread.run.completed":
-          self._active_run = None
-          llm_stream.push_text(None)
+      await self._handle_response_stream(stream, llm_stream)
 
     return llm_stream
 
