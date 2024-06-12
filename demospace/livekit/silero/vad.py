@@ -6,21 +6,16 @@ class VAD(silero.VAD):
   def __init__(
     self,
     *,
-    model_path: str | None = None,
     min_silence_duration: float = 0.8,
     use_onnx: bool = True,
   ) -> None:
     self._min_silence_duration = min_silence_duration
-    if model_path:
-      model = torch.jit.load(model_path)
-      model.eval()
-    else:
-      model, _ = torch.hub.load(
-        repo_or_dir="snakers4/silero-vad",
-        model="silero_vad",
-        onnx=use_onnx,
-      )
-    self._model = model
+
+    self._model, _ = torch.hub.load(
+      repo_or_dir="snakers4/silero-vad",
+      model="silero_vad",
+      onnx=use_onnx,
+    )
 
   def stream(
     self,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Literal, MutableSet, Optional
 
 import openai
@@ -67,7 +68,7 @@ class LLM(llm.LLM):
     except openai.APIError as e:
       if e.message == "Cannot cancel run with status 'cancelling'.":
         self._active_run = None
-      print(f"Error cancelling run: {e}")
+      logging.info(f"Error cancelling run: {e}")
 
   async def _add_messages_and_get_thread(
     self, history: llm.ChatContext
@@ -94,8 +95,8 @@ class LLM(llm.LLM):
                 thread_id=self._thread.id, run_id=run_id
               )
             except openai.APIError as e:
-              print(f"Failed cancelling run: {e}")
-          print(f"Failed adding message: {e}, retrying...")
+              logging.info(f"Failed cancelling run: {e}")
+          logging.info(f"Failed adding message: {e}, retrying...")
       return self._thread
     else:
       self._thread = await self._client.beta.threads.create(
@@ -137,11 +138,11 @@ class LLM(llm.LLM):
         for tool_call in tool_calls:
           match tool_call.function.name:
             case "send_asset":
-              print(f"Sending asset: {tool_call.function.arguments}")
+              logging.info(f"Sending asset: {tool_call.function.arguments}")
               await send_asset(tool_call.function.arguments, self._room)
               outputs.append({"tool_call_id": tool_call.id, "output": "OK"})
             case _:
-              print(f"Unrecognized function name: {tool_call.function.name}")
+              logging.info(f"Unrecognized function name: {tool_call.function.name}")
               continue
         async with self._client.beta.threads.runs.submit_tool_outputs_stream(
           thread_id=self._thread.id,
