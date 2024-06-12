@@ -15,6 +15,7 @@ class VAD(silero.VAD):
       repo_or_dir="snakers4/silero-vad",
       model="silero_vad",
       onnx=use_onnx,
+      trust_repo=True,
     )
 
   def stream(

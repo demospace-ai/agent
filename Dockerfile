@@ -24,6 +24,8 @@ ENV POETRY_NO_INTERACTION=1 \
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y ffmpeg
+
 RUN pip install poetry==1.4.2
 
 COPY pyproject.toml poetry.lock ./
