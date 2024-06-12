@@ -148,7 +148,6 @@ class LLM(llm.LLM):
           run_id=self._active_run.id,
           tool_outputs=outputs,
         ) as new_stream:
-          print("Submitted tool outputs")
           await self._handle_response_stream(new_stream, llm_stream)
 
   async def chat(
