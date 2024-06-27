@@ -6,7 +6,7 @@ from livekit.agents import JobContext, JobRequest, WorkerOptions, cli
 from livekit.agents.voice_assistant import VoiceAssistant
 from livekit.plugins import deepgram, elevenlabs
 
-from demospace.livekit import openai_assistant, silero
+from demospace.livekit import claude, silero
 from demospace.utils.env import is_prod
 
 if is_prod():
@@ -23,7 +23,7 @@ async def entrypoint(ctx: JobContext):
       min_silence_duration=2.0,
     ),  # Voice Activity Detection
     stt=deepgram.STT(),  # Speech-to-Text
-    llm=openai_assistant.LLM(
+    llm=claude.LLM(
       assistant_id="asst_bbUcOJFDfFWKYthUgNeHNSIp",
       room=ctx.room,
     ),  # Language Model
