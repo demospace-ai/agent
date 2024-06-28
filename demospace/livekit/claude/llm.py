@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from typing import Any, Literal, MutableSet
+from typing import Any, Callable, Literal, MutableSet
 
 import anthropic
 from attrs import define
@@ -47,7 +48,6 @@ class LLM(llm.LLM):
       for fnc in fnc_ctx.ai_functions.values():
         tools.append(tool_calling.build_function_description(fnc))
 
-    print(tools)
     stream = await self._client.messages.create(
       max_tokens=self._max_tokens,
       model=self._opts.model,
@@ -57,21 +57,73 @@ class LLM(llm.LLM):
       stream=True,
     )
 
-    return LLMStream(stream, fnc_ctx)
+    async def _send_tool_result(
+      message_text: str,
+      fnc_name: str,
+      fnc_raw_arguments: str,
+      tool_use_id: str,
+      result: str,
+    ):
+      args = json.loads(fnc_raw_arguments)
+      messages = _build_anthropic_context(history)
+      messages.extend(
+        [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "text",
+                "text": message_text,
+              },
+              {
+                "type": "tool_use",
+                "id": tool_use_id,
+                "name": fnc_name,
+                "input": args,
+              },
+            ],
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": result,
+              }
+            ],
+          },
+        ]
+      )
+      return await self._client.messages.create(
+        max_tokens=self._max_tokens,
+        model=self._opts.model,
+        tools=tools,
+        messages=messages,
+        system=self._system,
+        stream=True,
+      )
+
+    return LLMStream(stream, _send_tool_result, fnc_ctx)
 
 
 class LLMStream(llm.LLMStream):
   def __init__(
     self,
     anthropic_stream: anthropic.AsyncStream[anthropic.types.RawMessageStreamEvent],
+    send_tool_result: Callable,
     fnc_ctx: llm.FunctionContext | None,
   ) -> None:
     super().__init__()
     self._anthropic_stream = anthropic_stream
+    self._send_tool_result = send_tool_result
     self._fnc_ctx = fnc_ctx
     self._running_tasks: MutableSet[asyncio.Task[Any]] = set()
 
+    self._message_text: str = ""
+
     # current function call that we're waiting for full completion (args are streamed)
+    self._tool_use_id: str | None = None
     self._fnc_name: str | None = None
     self._fnc_raw_arguments: str | None = None
 
@@ -92,13 +144,13 @@ class LLMStream(llm.LLMStream):
 
   async def __anext__(self):
     async for chunk in self._anthropic_stream:
-      chat_chunk = self._parse_chunk(chunk)
+      chat_chunk = await self._parse_chunk(chunk)
       if chat_chunk is not None:
         return chat_chunk
 
     raise StopAsyncIteration
 
-  def _parse_chunk(
+  async def _parse_chunk(
     self, chunk: anthropic.types.RawMessageStreamEvent
   ) -> llm.ChatChunk | None:
     match chunk.type:
@@ -126,6 +178,7 @@ class LLMStream(llm.LLMStream):
         return None
       case "content_block_start":
         if chunk.content_block.type == "text":
+          self._message_text += chunk.content_block.text
           return llm.ChatChunk(
             choices=[
               llm.Choice(
@@ -137,11 +190,13 @@ class LLMStream(llm.LLMStream):
             ]
           )
         elif chunk.content_block.type == "tool_use":
+          self._tool_use_id = chunk.content_block.id
           self._fnc_name = chunk.content_block.name
         else:
           logging.warning(f"unhandled content block type {chunk.content_block.type}")
       case "content_block_delta":
         if chunk.delta.type == "text_delta":
+          self._message_text += chunk.delta.text
           return llm.ChatChunk(
             choices=[
               llm.Choice(
@@ -161,13 +216,10 @@ class LLMStream(llm.LLMStream):
           logging.warning(f"unhandled content block delta type {chunk.delta.type}")
       case "content_block_stop":
         if self._fnc_name is not None:
-          print(
-            f"calling function {self._fnc_name} with arguments {self._fnc_raw_arguments}"
-          )
-          return self._try_run_function()
+          return await self._try_run_function()
         return None
 
-  def _try_run_function(
+  async def _try_run_function(
     self,
   ) -> llm.ChatChunk | None:
     if not self._fnc_ctx:
@@ -183,18 +235,27 @@ class LLMStream(llm.LLMStream):
     task, called_function = tool_calling.create_function_task(
       self._fnc_ctx, self._fnc_name, self._fnc_raw_arguments
     )
-    self._fnc_name = self._fnc_raw_arguments = None
 
-    self._running_tasks.add(task)
-    task.add_done_callback(self._running_tasks.remove)
     self._called_functions.append(called_function)
+
+    await asyncio.wait_for(task, None)
+
+    new_stream = await self._send_tool_result(
+      self._message_text,
+      self._fnc_name,
+      self._fnc_raw_arguments,
+      self._tool_use_id,
+      task.result(),
+    )
+    self._anthropic_stream = new_stream
+
+    self._tool_use_id = self._fnc_name = self._fnc_raw_arguments = None
 
     return llm.ChatChunk(
       choices=[
         llm.Choice(
           delta=llm.ChoiceDelta(
             role="assistant",
-            tool_calls=[called_function],
           ),
         )
       ]

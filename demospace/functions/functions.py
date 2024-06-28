@@ -39,3 +39,5 @@ class Functions(
       ),
       topic="asset",
     )
+
+    return "asset sent"

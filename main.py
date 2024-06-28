@@ -41,6 +41,10 @@ async def entrypoint(ctx: JobContext):
     fnc_ctx=functions.Functions(ctx.room),
   )
 
+  @assistant.on("agent_speech_interrupted")
+  def _agent_speech_interrupted(chat_ctx: llm.ChatContext, msg: llm.ChatMessage):
+    msg.text += "... (user interrupted you)"
+
   # Start the voice assistant with the LiveKit room
   assistant.start(ctx.room)
 
