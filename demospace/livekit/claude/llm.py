@@ -207,9 +207,9 @@ class LLMStream(llm.LLMStream):
 
 
 def _build_anthropic_context(
-  chat_ctx: llm.ChatContext, cache_key: Any
+  chat_ctx: llm.ChatContext,
 ) -> list[anthropic.types.Message]:
-  return [_build_anthropic_message(msg, cache_key) for msg in chat_ctx.messages]  # type: ignore
+  return [_build_anthropic_message(msg) for msg in chat_ctx.messages]  # type: ignore
 
 
 def _build_anthropic_message(msg: llm.ChatMessage):
