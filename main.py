@@ -20,7 +20,7 @@ async def entrypoint(ctx: JobContext):
   # for details on how it works.
   assistant = VoiceAssistant(
     vad=silero.VAD(
-      min_silence_duration=2.0,
+      min_silence_duration=1.0,
     ),  # Voice Activity Detection
     stt=deepgram.STT(),  # Speech-to-Text
     llm=claude.LLM(
