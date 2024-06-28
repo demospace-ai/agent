@@ -86,7 +86,6 @@ class LLMStream(llm.LLMStream):
     self._running_tasks: MutableSet[asyncio.Task[Any]] = set()
 
     # current function call that we're waiting for full completion (args are streamed)
-    self._tool_call_id: str | None = None
     self._fnc_name: str | None = None
     self._fnc_raw_arguments: str | None = None
 
@@ -180,12 +179,6 @@ class LLMStream(llm.LLMStream):
       logging.warning("anthropic stream tried to run function without function context")
       return None
 
-    if self._tool_call_id is None:
-      logging.warning(
-        "anthropic stream tried to run function but tool_call_id is not set"
-      )
-      return None
-
     if self._fnc_name is None or self._fnc_raw_arguments is None:
       logging.warning(
         "anthropic stream tried to call a function but raw_arguments and fnc_name are not set"
@@ -193,9 +186,9 @@ class LLMStream(llm.LLMStream):
       return None
 
     task, called_function = tool_calling.create_function_task(
-      self._fnc_ctx, self._tool_call_id, self._fnc_name, self._fnc_raw_arguments
+      self._fnc_ctx, self._fnc_name, self._fnc_raw_arguments
     )
-    self._tool_call_id = self._fnc_name = self._fnc_raw_arguments = None
+    self._fnc_name = self._fnc_raw_arguments = None
 
     self._running_tasks.add(task)
     task.add_done_callback(self._running_tasks.remove)

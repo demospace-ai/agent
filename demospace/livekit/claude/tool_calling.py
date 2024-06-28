@@ -7,7 +7,7 @@ import json
 import typing
 from typing import Any
 
-from livekit.agents.llm import function_context
+from livekit.agents.llm import function_context, llm
 
 __all__ = [
   "create_function_task",
@@ -16,10 +16,9 @@ __all__ = [
 
 def create_function_task(
   fnc_ctx: function_context.FunctionContext,
-  tool_call_id: str,
   fnc_name: str,
   raw_arguments: str,  # JSON string
-) -> tuple[asyncio.Task[Any], function_context.CalledFunction]:
+) -> tuple[asyncio.Task[Any], llm.CalledFunction]:
   if fnc_name not in fnc_ctx.ai_functions:
     raise ValueError(f"AI function {fnc_name} not found")
 
@@ -36,7 +35,7 @@ def create_function_task(
 
   # Ensure all necessary arguments are present and of the correct type.
   sanitized_arguments: dict[str, Any] = {}
-  for arg_info in fnc_info.arguments.values():
+  for arg_info in fnc_info.args.values():
     if arg_info.name not in parsed_arguments:
       if arg_info.default is inspect.Parameter.empty:
         raise ValueError(
@@ -53,26 +52,24 @@ def create_function_task(
 
       inner_type = typing.get_args(arg_info.type)[0]
       sanitized_value = [
-        _sanitize_primitive(value=v, expected_type=inner_type, choices=arg_info.choices)
-        for v in arg_value
+        _sanitize_primitive(value=v, expected_type=inner_type) for v in arg_value
       ]
     else:
       sanitized_value = _sanitize_primitive(
-        value=arg_value, expected_type=arg_info.type, choices=arg_info.choices
+        value=arg_value, expected_type=arg_info.type
       )
 
     sanitized_arguments[arg_info.name] = sanitized_value
 
-  func = functools.partial(fnc_info.callable, **sanitized_arguments)
-  if asyncio.iscoroutinefunction(fnc_info.callable):
+  func = functools.partial(fnc_info.fnc, **sanitized_arguments)
+  if asyncio.iscoroutinefunction(fnc_info.fnc):
     task = asyncio.create_task(func())
   else:
     task = asyncio.create_task(asyncio.to_thread(func))
 
   return (
     task,
-    function_context.CalledFunction(
-      tool_call_id=tool_call_id,
+    llm.CalledFunction(
       raw_arguments=raw_arguments,
       function_info=fnc_info,
       arguments=sanitized_arguments,
