@@ -2,11 +2,13 @@ import asyncio
 import logging
 
 from dotenv import load_dotenv
-from livekit.agents import JobContext, JobRequest, WorkerOptions, cli
+from livekit.agents import JobContext, JobRequest, WorkerOptions, cli, llm
 from livekit.agents.voice_assistant import VoiceAssistant
 from livekit.plugins import deepgram, elevenlabs
 
+from demospace.functions import functions
 from demospace.livekit import claude, silero
+from demospace.llm import prompts
 from demospace.utils.env import is_prod
 
 if is_prod():
@@ -25,8 +27,18 @@ async def entrypoint(ctx: JobContext):
     stt=deepgram.STT(),  # Speech-to-Text
     llm=claude.LLM(
       room=ctx.room,
+      system=prompts.SYSTEM_PROMPT,
     ),  # Language Model
     tts=elevenlabs.TTS(),  # Text-to-Speech
+    chat_ctx=llm.ChatContext(
+      messages=[
+        llm.ChatMessage(
+          role=llm.ChatRole.USER,
+          text=prompts.INITIAL_PROMPT,
+        )
+      ]
+    ),
+    fnc_ctx=functions.Functions(ctx.room),
   )
 
   # Start the voice assistant with the LiveKit room

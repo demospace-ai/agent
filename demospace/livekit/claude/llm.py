@@ -9,7 +9,7 @@ from attrs import define
 from livekit import rtc
 from livekit.agents import llm
 
-from demospace.livekit.claude import system_prompt, tool_calling
+from demospace.livekit.claude import tool_calling
 
 ChatModels = Literal["claude-3-5-sonnet-20240620",]
 
@@ -27,51 +27,37 @@ class LLM(llm.LLM):
     model: ChatModels = "claude-3-5-sonnet-20240620",
     client: anthropic.AsyncClient | None = None,
     max_tokens: int = 1024,
+    system: str | None = None,
   ) -> None:
     self._room: rtc.Room = room
     self._opts: LLMOptions = LLMOptions(model=model)
     self._client: anthropic.AsyncClient = client or anthropic.AsyncAnthropic()
     self._max_tokens: int = max_tokens
+    self._system: str | None = system
 
   async def chat(
     self,
-    chat_ctx: llm.ChatContext,
+    history: llm.ChatContext,
     fnc_ctx: llm.FunctionContext | None = None,
     temperature: float | None = None,
     n: int | None = None,
   ) -> "LLMStream":
-    tools = [
-      {
-        "name": "send_asset",
-        "description": "Send a visual asset to the customer's application",
-        "input_schema": {
-          "type": "object",
-          "properties": {
-            "assetUrl": {
-              "type": "string",
-              "description": "The URL of the visual asset. Taken from the Assets section of the prompt.",
-            },
-            "alt": {
-              "type": "string",
-              "description": "The alt text of the visual asset. Taken from the Assets section of the prompt.",
-            },
-          },
-          "required": ["assetUrl", "alt"],
-        },
-      }
-    ]
+    tools = []
+    if fnc_ctx and len(fnc_ctx.ai_functions) > 0:
+      for fnc in fnc_ctx.ai_functions.values():
+        tools.append(tool_calling.build_function_description(fnc))
 
+    print(tools)
     stream = await self._client.messages.create(
       max_tokens=self._max_tokens,
       model=self._opts.model,
-      temperature=temperature,
       tools=tools,
-      messages=_build_anthropic_context(chat_ctx),
-      system=system_prompt.SYSTEM_PROMPT,
+      messages=_build_anthropic_context(history),
+      system=self._system,
       stream=True,
     )
 
-    return LLMStream(stream)
+    return LLMStream(stream, fnc_ctx)
 
 
 class LLMStream(llm.LLMStream):
@@ -92,6 +78,9 @@ class LLMStream(llm.LLMStream):
   async def gather_function_results(self) -> list[llm.CalledFunction]:
     await asyncio.gather(*self._running_tasks, return_exceptions=True)
     return self._called_functions
+
+  def __aiter__(self) -> "LLMStream":
+    return self
 
   async def aclose(self) -> None:
     await self._anthropic_stream.close()
@@ -164,11 +153,17 @@ class LLMStream(llm.LLMStream):
             ]
           )
         elif chunk.delta.type == "input_json_delta":
-          self._fnc_raw_arguments += chunk.delta.partial_json
+          if self._fnc_raw_arguments is not None:
+            self._fnc_raw_arguments += chunk.delta.partial_json
+          else:
+            self._fnc_raw_arguments = chunk.delta.partial_json
         else:
           logging.warning(f"unhandled content block delta type {chunk.delta.type}")
       case "content_block_stop":
         if self._fnc_name is not None:
+          print(
+            f"calling function {self._fnc_name} with arguments {self._fnc_raw_arguments}"
+          )
           return self._try_run_function()
         return None
 
@@ -214,7 +209,7 @@ def _build_anthropic_context(
 
 def _build_anthropic_message(msg: llm.ChatMessage):
   anthropic_msg: dict = {
-    "role": msg.role,
+    "role": msg.role.value,
   }
 
   # add content if provided

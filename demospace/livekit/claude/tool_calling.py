@@ -70,17 +70,37 @@ def create_function_task(
   return (
     task,
     llm.CalledFunction(
-      raw_arguments=raw_arguments,
-      function_info=fnc_info,
-      arguments=sanitized_arguments,
-      task=task,
+      fnc_name=fnc_name,
+      fnc=func,
+      args=sanitized_arguments,
     ),
   )
 
 
-def _sanitize_primitive(
-  *, value: Any, expected_type: type, choices: list | None
-) -> Any:
+def build_function_description(
+  fnc_info: function_context.AIFunction,
+) -> dict[str, Any]:
+  arg_names = [key for key in fnc_info.args.keys()]
+  properties_info = {
+    arg_name: {
+      "type": "string",
+      "description": arg_info.desc,
+    }
+    for arg_name, arg_info in fnc_info.args.items()
+  }
+
+  return {
+    "name": fnc_info.metadata.name,
+    "description": fnc_info.metadata.desc,
+    "input_schema": {
+      "type": "object",
+      "properties": properties_info,
+      "required": arg_names,
+    },
+  }
+
+
+def _sanitize_primitive(*, value: Any, expected_type: type) -> Any:
   if expected_type is str:
     if not isinstance(value, str):
       raise ValueError(f"expected str, got {type(value)}")
@@ -99,8 +119,5 @@ def _sanitize_primitive(
   elif expected_type is bool:
     if not isinstance(value, bool):
       raise ValueError(f"expected bool, got {type(value)}")
-
-  if choices and value not in choices:
-    raise ValueError(f"invalid value {value}, not in {choices}")
 
   return value
