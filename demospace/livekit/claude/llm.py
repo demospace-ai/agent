@@ -67,7 +67,7 @@ class LLM(llm.LLM):
       temperature=temperature,
       tools=tools,
       messages=_build_anthropic_context(chat_ctx),
-      system_prompt=system_prompt.SYSTEM_PROMPT,
+      system=system_prompt.SYSTEM_PROMPT,
       stream=True,
     )
 
