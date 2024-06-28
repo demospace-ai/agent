@@ -115,9 +115,25 @@ class LLMStream(llm.LLMStream):
   ) -> llm.ChatChunk | None:
     match chunk.type:
       case "message_start":
-        return None
+        return llm.ChatChunk(
+          choices=[
+            llm.Choice(
+              delta=llm.ChoiceDelta(
+                role="assistant",
+              )
+            )
+          ]
+        )
       case "message_delta":
-        return self._parse_message_delta(chunk)
+        return llm.ChatChunk(
+          choices=[
+            llm.Choice(
+              delta=llm.ChoiceDelta(
+                role="assistant",
+              )
+            )
+          ]
+        )
       case "message_stop":
         return None
       case "content_block_start":
@@ -203,50 +219,25 @@ def _build_anthropic_context(
   return [_build_anthropic_message(msg, cache_key) for msg in chat_ctx.messages]  # type: ignore
 
 
-def _build_anthropic_message(msg: llm.ChatMessage, cache_key: Any):
+def _build_anthropic_message(msg: llm.ChatMessage):
   anthropic_msg: dict = {
     "role": msg.role,
   }
 
-  if msg.name:
-    anthropic_msg["name"] = msg.name
-
   # add content if provided
-  if isinstance(msg.content, str):
-    anthropic_msg["content"] = msg.content
-  elif isinstance(msg.content, list):
+  if isinstance(msg.text, str):
+    anthropic_msg["content"] = msg.text
+  elif isinstance(msg.text, list):
     anthropic_content = []
-    for cnt in msg.content:
-      if isinstance(cnt, str):
+    for content in msg.text:
+      if isinstance(content, str):
         anthropic_content.append(
           {
             "type": "text",
-            "text": cnt,
+            "text": content,
           }
         )
 
     anthropic_msg["content"] = anthropic_content
-
-  # make sure to provide when function has been called inside the context
-  # (+ raw_arguments)
-  if msg.tool_calls is not None:
-    tool_calls: list[dict[str, Any]] = []
-    anthropic_msg["tool_calls"] = tool_calls
-    for fnc in msg.tool_calls:
-      tool_calls.append(
-        {
-          "id": fnc.tool_call_id,
-          "type": "function",
-          "function": {
-            "name": fnc.function_info.name,
-            "arguments": fnc.raw_arguments,
-          },
-        }
-      )
-
-  # tool_call_id is set when the message is a response/result to a function call
-  # (content is a string in this case)
-  if msg.tool_call_id:
-    anthropic_msg["tool_call_id"] = msg.tool_call_id
 
   return anthropic_msg
