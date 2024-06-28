@@ -23,13 +23,11 @@ class LLM(llm.LLM):
   def __init__(
     self,
     *,
-    assistant_id: str,
     room: rtc.Room,
     model: ChatModels = "claude-3-5-sonnet-20240620",
     client: anthropic.AsyncClient | None = None,
     max_tokens: int = 1024,
   ) -> None:
-    self.assistant_id: str = assistant_id
     self._room: rtc.Room = room
     self._opts: LLMOptions = LLMOptions(model=model)
     self._client: anthropic.AsyncClient = client or anthropic.AsyncAnthropic()

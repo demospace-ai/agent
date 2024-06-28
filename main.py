@@ -24,7 +24,6 @@ async def entrypoint(ctx: JobContext):
     ),  # Voice Activity Detection
     stt=deepgram.STT(),  # Speech-to-Text
     llm=claude.LLM(
-      assistant_id="asst_bbUcOJFDfFWKYthUgNeHNSIp",
       room=ctx.room,
     ),  # Language Model
     tts=elevenlabs.TTS(),  # Text-to-Speech
