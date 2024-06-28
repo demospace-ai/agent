@@ -2,6 +2,8 @@
 
 This project is the implementation for Demospace's AI agent, which interacts with a user via voice and sends visual assets in real time. It uses LiveKit for real-time streaming over WebRTC and links multiple ML models (Deepgram, Claude/OpenAI, Eleven Labs) to power the voice-to-voice workflow.
 
+Note that to use this agent, you'll need to have the Demospace frontend application running as well, connected to your LiveKit server.
+
 ## Features
 
 - Real-time voice interaction with AI agent
@@ -13,8 +15,9 @@ This project is the implementation for Demospace's AI agent, which interacts wit
 ### Prerequisites
 
 - Python 3.11 or higher
+- Poetry 1.2 or higher
 - LiveKit server setup
-- API keys for Deepgram, Claude, and Eleven Labs
+- API keys for Deepgram, Anthropic, and Eleven Labs
 
 ### Installation
 
@@ -27,7 +30,7 @@ This project is the implementation for Demospace's AI agent, which interacts wit
 
 2. Install the required Python packages:
    ```sh
-   pip install -r requirements.txt
+   poetry install
    ```
 
 ### Usage
@@ -35,7 +38,7 @@ This project is the implementation for Demospace's AI agent, which interacts wit
 1. Start the LiveKit server and obtain the necessary credentials.
 2. Run the main script:
    ```sh
-   python main.py
+   poetry run python main.py start
    ```
 
 ### Project Structure
