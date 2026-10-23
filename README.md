@@ -1,6 +1,6 @@
 # Demospace AI Voice Agent
 
-This project is the implementation for Demospace's AI agent, which interacts with a user via voice and sends visual assets in real time. It uses LiveKit for real-time streaming over WebRTC and links multiple ML models (Deepgram, Claude/OpenAI, Eleven Labs) to power the voice-to-voice workflow.
+This project is the implementation for Demospace's AI agent, which interacts with a user via voice and sends visual asset URLs in real time. The active worker uses LiveKit for real-time streaming over WebRTC and links Deepgram, Claude, Eleven Labs, and Silero to power the voice-to-voice workflow.
 
 Note that to use this agent, you'll need to have the Demospace frontend application running as well, connected to your LiveKit server.
 
@@ -47,6 +47,33 @@ Note that to use this agent, you'll need to have the Demospace frontend applicat
 - `livekit/`: Contains modules related to LiveKit integration.
 - `agents/`: Contains AI agent-related modules and functions.
 - `models/`: Contains machine learning models used for voice processing.
+
+## Dependency maintenance and offline checks
+
+The active `main.py` worker does not use the OpenAI LiveKit plugin or Pillow image
+processing. The unused `livekit-plugins-openai` dependency was removed because its
+image extra pins an affected Pillow release. The existing OpenAI SDK is retained
+for the legacy adapter source; that adapter is not part of the active worker or
+the supported voice-flow checks. Reintroducing image support requires compatible,
+patched dependencies, not the old plugin constraint.
+
+Explicit minimum versions protect the transitive aiohttp, PyJWT, and fsspec
+dependencies. Use Poetry 1.8.2 for lockfile updates, preserving unrelated package
+versions where possible. After installing the lockfile, run:
+
+```sh
+poetry install --no-root --sync
+poetry run python -m pip check
+ENVIRONMENT=production poetry run python -W error::ResourceWarning -m unittest discover -s tests -v
+ENVIRONMENT=production poetry run python main.py --help
+```
+
+These checks use dummy credentials, local memory, or loopback HTTP/WebSocket
+servers. They do not start a voice session, download a model, or contact live
+providers. `ENVIRONMENT=production` prevents the current environment helper from
+loading `.env.local`. The Docker image remains Python 3.11.8 with Poetry 1.4.2;
+offline checks on another Python version do not replace production-image or
+live-provider verification.
 
 ### Contributing
 
