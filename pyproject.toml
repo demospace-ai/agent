@@ -10,10 +10,15 @@ packages = [{include = "main.py"}]
 python = "^3.11"
 # Security floor for GHSA-9xw5-w5jj-pvcg (transitive via livekit-api).
 aiohttp = ">=3.14.4,<4.0.0"
+# Security floors for transitive authentication and filesystem dependencies.
+pyjwt = ">=2.15.1,<3.0.0"
+fsspec = ">=2026.6.0,<2027.0.0"
 livekit = "^0.11.1"
 livekit-agents = "^0.7.2"
 livekit-plugins-deepgram = "^0.5.1"
-livekit-plugins-openai = "^0.6.0"
+# The Claude voice worker does not use livekit-plugins-openai or its image extras.
+# Retain the SDK used by the legacy OpenAI adapter without pulling in Pillow.
+openai = ">=1.30.0,<1.31.0"
 livekit-plugins-elevenlabs = "^0.6.0"
 livekit-plugins-silero = "^0.5.1"
 python-dotenv = "^1.0.1"
