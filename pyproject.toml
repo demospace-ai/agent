@@ -8,6 +8,8 @@ packages = [{include = "main.py"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
+# Security floor for GHSA-9xw5-w5jj-pvcg (transitive via livekit-api).
+aiohttp = ">=3.14.4,<4.0.0"
 livekit = "^0.11.1"
 livekit-agents = "^0.7.2"
 livekit-plugins-deepgram = "^0.5.1"
